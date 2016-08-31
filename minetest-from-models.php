@@ -46,6 +46,7 @@ $GRANULARITY = 1; // how dense the rays are that generate minetest nodes. Smalle
 $NODE_NAME = "default:dirt"; // Minetest node to use on model interior
 $SHOW_PROGRESS = true; // Set to true to emit progress messages on stdout
 $ROUND_INPUT_NUMBERS = true; // set to true to round the triangle's coordinates to near-integers. Should reduce computation cost
+$METHOD = 1; // set to 1 for Brute-force method. Set to 0 for run-length method
 
 ###
 # Main Program
@@ -122,11 +123,11 @@ foreach( $raw as $triNum )
 if( $SHOW_PROGRESS )
 {
   // determine size of progress bar:
-  $rayTotal = ($maxX - $minX) * ($maxY - $minY); // the number of rows
-  $rayTotal /= $GRANULARITY; // the number of rays per row
+  $rayTotal = ceil($maxX - $minX) * ceil($maxY - $minY); // the number of rows
+  $rayTotal /= ($GRANULARITY^2); // the number of rays per row
 
   // report progress
-  echo "Model bound by ($minX,$minY,$minZ) -> ($maxX,$maxY,$maxZ)\nNow shooting ".number_format(round($rayTotal))." rays.\n";
+  echo "Model bound by ($minX,$minY,$minZ) -> ($maxX,$maxY,$maxZ)\nNow shooting ".number_format($rayTotal)." rays.\n";
   echo "If this takes too long, try increasing \$GRANULARITY. Currently shooting ".round(1/$GRANULARITY,2)." rays per row.\n";
 }
 
@@ -152,27 +153,31 @@ for( $x=$minX; $x<=$maxX; $x+=$GRANULARITY )
                                   );
       // if there was a hit, record the distance along the ray's z axis
       if( $result !== false )
-        $intersectionDistance[] = $result;
+        $intersectionDistance[] = $minZ + $result * $maxZ;
+    }
+
+    if( empty($intersectionDistance) )
+    {
+      if( $SHOW_PROGRESS )
+        echo "\r".number_format($progressIncrementor++)." rays";
+      continue;
     }
 
     // sort $intersectionDistance from lowest to highest
     sort( $intersectionDistance );
 
+###
+# Run-Length approach: Iterate through the intersections and then iterate through part of the Z axis
+###
+if( $METHOD == 0 )
+{
     // iterate through the intersections with this ray
     foreach( $intersectionDistance as $key=>$dist )
     {
-      // this distance assumed to be empty
-      if( $key == 0 )
+      if( $IS_AN_INTERIOR == true && $key!=0 )
       {
-        $IS_AN_INTERIOR = false;
-        continue;
-      }
-
-      if( $IS_AN_INTERIOR == true )
-      {
-        // the distance from the ray start of the last key, in units of $GRANULARITY
-        $z = floor( ($intersectionDistance[($key-1)]-$minZ) / $GRANULARITY );
-
+        // the distance along the ray at the last key, in units of $GRANULARITY
+        $z = floor( $intersectionDistance[($key-1)] );
         // iterate through the z axis
         for( ; $z<=$dist; $z+=$GRANULARITY )
         {
@@ -191,14 +196,19 @@ for( $x=$minX; $x<=$maxX; $x+=$GRANULARITY )
           // finally get to set the coordinate to true
           $outputArray[$tempX][$tempY][$tempZ] = true;
         }
+        $IS_AN_INTERIOR = false;
       }
-        if( $IS_AN_INTERIOR == true )
-          $IS_AN_INTERIOR = false;
-        else
-          $IS_AN_INTERIOR = true;
+      else
+      {
+        $IS_AN_INTERIOR = true;
+      }
     }
-
-/*
+}
+###
+# Brute-force approach: iterate through the entire Z axis, looking for intersections
+###
+if( $METHOD == 1 )
+{
     // iterate through the z axis
     for( $z=$minZ; $z<=$maxZ; $z+=$GRANULARITY )
     {
@@ -234,7 +244,8 @@ for( $x=$minX; $x<=$maxX; $x+=$GRANULARITY )
         $outputArray[$tempX][$tempY][$tempZ] = true;
       }
     }
-*/
+}
+###
     if( $SHOW_PROGRESS )
       echo "\r".number_format($progressIncrementor++)." rays";
   }
